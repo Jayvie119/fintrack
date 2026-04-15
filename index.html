@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinTrack | Personal Finance Manager</title>
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="ft-root">
+    <div class="ft-header">
+      <div class="ft-logo">Fin<span>Track</span></div>
+      <div class="ft-tabs">
+        <button class="ft-tab active" onclick="switchTab('dashboard')">Dashboard</button>
+        <button class="ft-tab" onclick="switchTab('transactions')">Transactions</button>
+        <button class="ft-tab" onclick="switchTab('categories')">Categories</button>
+        <button class="ft-tab" onclick="switchTab('trends')">Trends</button>
+      </div>
+    </div>
+    <div class="ft-body">
+
+      <!-- DASHBOARD -->
+      <div id="tab-dashboard" class="ft-section active">
+        <div class="ft-metrics" id="metrics-row"></div>
+        <div class="ft-charts-row">
+          <div class="ft-chart-card">
+            <div class="ft-chart-title">Spending by category</div>
+            <div style="position:relative;height:220px;"><canvas id="donutChart" role="img" aria-label="Donut chart of spending by category"></canvas></div>
+            <div id="donut-legend" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:var(--ft-muted);"></div>
+          </div>
+          <div class="ft-chart-card">
+            <div class="ft-chart-title">Income vs Expenses (last 6 months)</div>
+            <div style="position:relative;height:220px;"><canvas id="barChart" role="img" aria-label="Bar chart comparing income vs expenses by month"></canvas></div>
+          </div>
+        </div>
+        <div id="recent-table-wrap" class="ft-table-wrap">
+          <div class="ft-table-header"><span class="ft-table-title">Recent Transactions</span></div>
+          <div id="recent-table"></div>
+        </div>
+      </div>
+
+      <!-- TRANSACTIONS -->
+      <div id="tab-transactions" class="ft-section">
+        <div class="ft-form">
+          <div style="font-size:12px;color:var(--ft-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Add Transaction</div>
+          <div class="ft-form-grid">
+            <div class="ft-form-group"><label>Date</label><input type="date" id="inp-date"></div>
+            <div class="ft-form-group"><label>Description</label><input type="text" id="inp-desc" placeholder="e.g. Grocery run"></div>
+            <div class="ft-form-group"><label>Amount (₱)</label><input type="number" id="inp-amount" placeholder="0.00" step="0.01"></div>
+            <div class="ft-form-group"><label>Category</label>
+              <select id="inp-cat">
+                <option value="Income">Income</option>
+                <option value="Food">Food</option>
+                <option value="Transport">Transport</option>
+                <option value="Housing">Housing</option>
+                <option value="Health">Health</option>
+                <option value="Utilities">Utilities</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <button class="ft-btn ft-btn-primary" onclick="addTransaction()" style="height:32px;margin-top:auto;">+ Add</button>
+          </div>
+        </div>
+        <div class="ft-table-wrap">
+          <div class="ft-table-header">
+            <span class="ft-table-title">All Transactions</span>
+            <div class="ft-controls">
+              <select id="filter-cat" onchange="renderAll()"><option value="">All categories</option><option>Income</option><option>Food</option><option>Transport</option><option>Housing</option><option>Health</option><option>Utilities</option><option>Entertainment</option><option>Other</option></select>
+              <input type="text" id="filter-search" placeholder="Search..." oninput="renderAll()" style="width:130px;">
+            </div>
+          </div>
+          <div id="all-table"></div>
+        </div>
+      </div>
+
+      <!-- CATEGORIES -->
+      <div id="tab-categories" class="ft-section">
+        <div class="ft-cat-grid">
+          <div class="ft-cat-card">
+            <div class="ft-chart-title" style="margin-bottom:14px;">Expense breakdown</div>
+            <div id="cat-breakdown"></div>
+          </div>
+          <div class="ft-cat-card">
+            <div class="ft-chart-title" style="margin-bottom:10px;">Category spending over time</div>
+            <div style="position:relative;height:260px;"><canvas id="catLineChart" role="img" aria-label="Line chart of category spending over months"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRENDS -->
+      <div id="tab-trends" class="ft-section">
+        <div class="ft-metrics" id="trends-metrics" style="grid-template-columns:repeat(3,1fr);"></div>
+        <div class="ft-trend-card">
+          <div class="ft-chart-title">Net balance over time</div>
+          <div style="position:relative;height:200px;"><canvas id="netChart" role="img" aria-label="Line chart of net balance over time"></canvas></div>
+        </div>
+        <div class="ft-trend-card">
+          <div class="ft-chart-title">Monthly savings rate (%)</div>
+          <div style="position:relative;height:180px;"><canvas id="savingsChart" role="img" aria-label="Bar chart of monthly savings rate"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+
+    <script src="js/supabase.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
