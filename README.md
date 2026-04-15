@@ -1,4 +1,4 @@
-![FinTrack Logo](https://i.imgur.com/F0arIqX.png)
+<p align="center"> <img src = https://i.imgur.com/F0arIqX.png> </p>
 
 > **Live Demo:** [fintrack-ten-alpha.vercel.app/login.html](https://fintrack-ten-alpha.vercel.app/login.html)
 
