@@ -124,12 +124,21 @@ async function init() {
         window.location.href = 'login.html';
         return; 
     } try {
+        const userName = session.user.user_metadata.full_name || "User";
+        document.querySelector('.ft-logo-wrapper').insertAdjacentHTML('afterend', `<span class="user-welcome">Hello, ${userName}</span>`);
         transactions = await db.getTransactions();
         document.getElementById('inp-date').value = new Date().toISOString().slice(0,10);
         renderAll();
     } catch (err) {
         console.error("Failed to load:", err);
     }
+
+    _supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT') {
+            window.location.href = 'login.html';
+        }
+    });
+
 }
 
 async function addTransaction() {
@@ -211,6 +220,19 @@ function renderAll() {
         renderCatLine(transactions);
     }, 100);
 }
+
+async function logout() {
+    const { error } = await _supabase.auth.signOut();
+    if (error) {
+        console.error("Error logging out:", error.message);
+    } else {
+        // Clear local storage if you saved anything there and redirect
+        window.location.href = 'login.html';
+    }
+}
+
+// Ensure the button in HTML can see this function
+window.logout = logout;
 
 
 document.addEventListener('DOMContentLoaded', init);
