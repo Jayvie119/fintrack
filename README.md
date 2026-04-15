@@ -1,23 +1,53 @@
-# Fintrack
+# FinTrack Documentation
 
-This project is designed to track financial assets.
+## Technical Stack
+- **Frontend**: React.js
+- **Backend**: Node.js, Express
+- **Database**: MongoDB
+- **Authentication**: JWT
+
+## Security Architecture
+- All sensitive data is stored securely with encryption.
+- User passwords are hashed before storage.
+- API endpoints are protected with appropriate authentication measures.
 
 ## Features
-- Asset tracking
-- Portfolio management
-- Real-time data updates
+- User Authentication
+- Real-time Data Visualization
+- Dashboard for tracking financial metrics
+- Reports generation and exporting options
 
-## Installation
-1. Clone the repository
-2. Install dependencies
+## Local Development Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Jayvie119/fintrack.git
+   ```
+2. Navigate to the project directory:
+   ```bash
+   cd fintrack
+   ```
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+4. Run the application:
+   ```bash
+   npm start
+   ```
 
-## Usage
-Once installed, you can start tracking your assets through the web interface.
+## Project Structure
+```
+fintrack/
+├── frontend/
+│   └── ...
+├── backend/
+│   └── ...
+└── README.md
+```
 
 ## Screenshots
+### Login Page
+![Login Page](https://i.imgur.com/abc123.png)
 
-![Asset Overview](https://imgur.com/alpha1234.png)
-![Portfolio Management](https://imgur.com/beta5678.png)
-![Real-Time Updates](https://imgur.com/gamma9101.png)
-
-> Note: The above images show key features of the application and may be updated regularly. If links become non-functional, please refer to the project documentation for further details.
+### Dashboard
+![Dashboard](https://i.imgur.com/xyz456.png)
