@@ -117,7 +117,13 @@ async function deleteTransaction(id) {
 
 // --- APP LOGIC ---
 async function init() {
-    try {
+    const { data: { session } } = await _supabase.auth.getSession();
+    
+    if (!session) {
+        // Not logged in? Redirect to login page
+        window.location.href = 'login.html';
+        return; 
+    } try {
         transactions = await db.getTransactions();
         document.getElementById('inp-date').value = new Date().toISOString().slice(0,10);
         renderAll();
