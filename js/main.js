@@ -138,14 +138,23 @@ async function addTransaction() {
     const raw = parseFloat(document.getElementById('inp-amount').value);
     const cat = document.getElementById('inp-cat').value;
 
-    if(!date || !desc || isNaN(raw) || raw === 0) return alert('Invalid input');
+    if(!date || !desc || isNaN(raw) || raw === 0) return alert('Please fill in all fields correctly.');
+
+    const { data, error: authError } = await _supabase.auth.getSession();
+
+    if (authError || !data.session) {
+        console.error("Auth error:", authError);
+        window.location.href = 'login.html';
+        return;
+    }
 
     // MAPPING: Local variables -> Supabase Column Names
     const newTxn = { 
         date: date, 
-        description: desc, // Must match "description" in your screenshot
+        description: desc, 
         amount: cat === 'Income' ? Math.abs(raw) : -Math.abs(raw), 
-        category: cat      // Must match "category" in your screenshot
+        category: cat,    
+        user_id: data.session.user.id 
     };
 
     try {
