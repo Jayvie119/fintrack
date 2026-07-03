@@ -233,7 +233,9 @@ function exportCSV() {
         t.category
     ]);
 
-    const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    // UTF-8 BOM so Google Sheets / Excel open it cleanly without encoding issues
+    const bom = '\uFEFF';
+    const csv = bom + [header.join(','), ...rows.map(r => r.join(','))].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
 
@@ -247,26 +249,122 @@ function exportCSV() {
 // --- IMPORT ---
 const VALID_CATEGORIES = ['Income', 'Food', 'Transport', 'Housing', 'Health', 'Utilities', 'Entertainment', 'Other'];
 
+// Column name aliases — maps whatever Google Sheets / other apps call them to our internal keys
+const COL_ALIASES = {
+    date:        ['date', 'transaction date', 'txn date', 'trans. date', 'trans date', 'posted date', 'value date'],
+    description: ['description', 'desc', 'details', 'memo', 'narrative', 'particulars', 'notes', 'note', 'payee', 'name'],
+    amount:      ['amount', 'amt', 'debit/credit', 'value', 'transaction amount', 'txn amount'],
+    category:    ['category', 'cat', 'type', 'transaction type', 'txn type'],
+};
+
+function matchColumn(headerName) {
+    const normalized = headerName.toLowerCase().trim().replace(/^"|"$/g, '');
+    for (const [key, aliases] of Object.entries(COL_ALIASES)) {
+        if (aliases.includes(normalized)) return key;
+    }
+    return null;
+}
+
+/**
+ * Parses a date string into YYYY-MM-DD.
+ * Handles: YYYY-MM-DD, M/D/YYYY, MM/DD/YYYY, D/M/YYYY, Month D YYYY, D Month YYYY
+ */
+function normalizeDate(raw) {
+    const s = raw.trim().replace(/^"|"$/g, '');
+
+    // Already ISO
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    // M/D/YYYY or MM/DD/YYYY  (Google Sheets default locale)
+    const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+        const [, a, b, y] = slashMatch;
+        // Assume M/D/YYYY (US) — if month > 12 swap to D/M/YYYY
+        const [month, day] = parseInt(a) > 12 ? [b, a] : [a, b];
+        return `${y}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+
+    // Try native Date parse as fallback (covers "Jan 15, 2025", "15 January 2025", etc.)
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+    }
+
+    return null;
+}
+
+/**
+ * Parses an amount string into a float.
+ * Handles: 1250.00, 1,250.00, (850.00), -850.00, ₱1,250.00
+ */
+function normalizeAmount(raw) {
+    let s = raw.trim().replace(/^"|"$/g, '');
+    // Strip currency symbols and spaces
+    s = s.replace(/[₱$€£¥\s]/g, '');
+    // Parentheses = negative: (850.00) → -850.00
+    const negative = /^\(.*\)$/.test(s);
+    s = s.replace(/[()]/g, '');
+    // Remove thousands commas: 1,250.00 → 1250.00
+    s = s.replace(/,(?=\d{3})/g, '');
+    const n = parseFloat(s);
+    return isNaN(n) ? NaN : (negative ? -Math.abs(n) : n);
+}
+
+/**
+ * Fuzzy-matches a raw category string to one of the valid FinTrack categories.
+ * Falls back to 'Other' when close enough, returns null if clearly wrong.
+ */
+function normalizeCategory(raw) {
+    const s = raw.trim().replace(/^"|"$/g, '');
+    // Exact match (case-insensitive)
+    const exact = VALID_CATEGORIES.find(c => c.toLowerCase() === s.toLowerCase());
+    if (exact) return exact;
+
+    // Keyword mapping for common Google Sheets / bank export labels
+    const keywordMap = {
+        Income:        ['salary', 'income', 'payroll', 'wages', 'credit', 'deposit', 'transfer in', 'receive'],
+        Food:          ['food', 'grocery', 'groceries', 'restaurant', 'dining', 'eat', 'meal', 'coffee', 'cafe', 'fastfood', 'snack'],
+        Transport:     ['transport', 'transportation', 'commute', 'grab', 'taxi', 'uber', 'lyft', 'fuel', 'gas', 'toll', 'parking', 'mrt', 'lrt', 'bus', 'train'],
+        Housing:       ['housing', 'rent', 'mortgage', 'condo', 'apartment', 'house', 'property'],
+        Health:        ['health', 'medical', 'medicine', 'pharmacy', 'hospital', 'clinic', 'doctor', 'dental', 'gym', 'fitness'],
+        Utilities:     ['utilities', 'utility', 'electric', 'electricity', 'water', 'internet', 'wifi', 'phone', 'mobile', 'bill', 'subscription'],
+        Entertainment: ['entertainment', 'movie', 'cinema', 'netflix', 'spotify', 'gaming', 'games', 'leisure', 'hobby', 'shopping', 'clothes', 'clothing'],
+    };
+
+    const lower = s.toLowerCase();
+    for (const [cat, keywords] of Object.entries(keywordMap)) {
+        if (keywords.some(k => lower.includes(k))) return cat;
+    }
+
+    // Unknown but non-empty — fall back to Other rather than rejecting the row
+    return s ? 'Other' : null;
+}
+
 async function importCSV(event) {
     const file = event.target.files[0];
-    // Reset input so the same file can be re-imported if needed
     event.target.value = '';
     if (!file) return;
 
-    const text = await file.text();
+    let text = await file.text();
+    // Strip UTF-8 BOM if present
+    text = text.replace(/^\uFEFF/, '');
+
     const lines = text.trim().split(/\r?\n/);
     if (lines.length < 2) return showImportModal(0, 0, ['File is empty or has no data rows.']);
 
-    // Normalize header: lowercase, strip quotes/spaces
-    const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-    const colDate = header.indexOf('date');
-    const colDesc = header.indexOf('description');
-    const colAmt  = header.indexOf('amount');
-    const colCat  = header.indexOf('category');
+    // Parse and map header columns
+    const rawHeader = parseCSVLine(lines[0]);
+    const colMap = {};
+    rawHeader.forEach((h, i) => {
+        const key = matchColumn(h);
+        if (key && !(key in colMap)) colMap[key] = i;
+    });
 
-    if ([colDate, colDesc, colAmt, colCat].includes(-1)) {
+    const missing = ['date', 'description', 'amount'].filter(k => !(k in colMap));
+    if (missing.length > 0) {
         return showImportModal(0, 0, [
-            'Missing required columns. Expected: date, description, amount, category'
+            `Missing required columns: ${missing.join(', ')}`,
+            `Found columns: ${rawHeader.map(h => h.trim()).join(', ')}`
         ]);
     }
 
@@ -281,36 +379,36 @@ async function importCSV(event) {
         const line = lines[i].trim();
         if (!line) continue;
 
-        // Handle quoted fields with commas inside them
         const cols = parseCSVLine(line);
-        const date = (cols[colDate] || '').trim();
-        const desc = (cols[colDesc] || '').trim();
-        const rawAmt = parseFloat((cols[colAmt] || '').trim());
-        const cat  = cols[colCat] ? cols[colCat].trim() : '';
 
-        // Validate
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            errors.push(`Row ${i}: invalid date "${date}" — use YYYY-MM-DD`);
+        const rawDate = cols[colMap.date] || '';
+        const rawDesc = cols[colMap.description] || '';
+        const rawAmt  = cols[colMap.amount] || '';
+        const rawCat  = colMap.category != null ? (cols[colMap.category] || '') : '';
+
+        const date = normalizeDate(rawDate);
+        const desc = rawDesc.trim().replace(/^"|"$/g, '');
+        const amount = normalizeAmount(rawAmt);
+        const category = normalizeCategory(rawCat) || 'Other';
+
+        if (!date) {
+            errors.push(`Row ${i + 1}: unrecognized date "${rawDate.trim()}"`);
             skipped++; continue;
         }
         if (!desc) {
-            errors.push(`Row ${i}: description is empty`);
+            errors.push(`Row ${i + 1}: description is empty`);
             skipped++; continue;
         }
-        if (isNaN(rawAmt) || rawAmt === 0) {
-            errors.push(`Row ${i}: invalid amount "${cols[colAmt]}"`);
-            skipped++; continue;
-        }
-        if (!VALID_CATEGORIES.includes(cat)) {
-            errors.push(`Row ${i}: unknown category "${cat}"`);
+        if (isNaN(amount) || amount === 0) {
+            errors.push(`Row ${i + 1}: unrecognized amount "${rawAmt.trim()}"`);
             skipped++; continue;
         }
 
         try {
-            await db.addTransaction({ date, description: desc, amount: rawAmt, category: cat, user_id: session.user.id });
+            await db.addTransaction({ date, description: desc, amount, category, user_id: session.user.id });
             imported++;
         } catch (e) {
-            errors.push(`Row ${i}: database error — ${e.message}`);
+            errors.push(`Row ${i + 1}: database error — ${e.message}`);
             skipped++;
         }
     }
@@ -357,7 +455,7 @@ function showImportModal(imported, skipped, errors) {
     if (skipped > 0) {
         html += `<div class="import-stat warning">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            ${skipped} row${skipped !== 1 ? 's' : ''} skipped
+            ${skipped} row${skipped !== 1 ? 's' : ''} skipped — see details below
         </div>`;
     }
     if (imported === 0 && skipped === 0 && errors.length === 0) {
@@ -368,10 +466,13 @@ function showImportModal(imported, skipped, errors) {
     }
 
     html += `<div class="import-hint">
-        Expected CSV format:<br>
-        date, description, amount, category<br>
-        2025-01-15, Groceries, -850.00, Food<br>
-        2025-01-01, Salary, 25000.00, Income
+        Accepted column names (any order, extra columns ignored):<br><br>
+        <strong>Date:</strong> date · transaction date · posted date<br>
+        <strong>Description:</strong> description · memo · payee · details · notes<br>
+        <strong>Amount:</strong> amount · debit/credit · value<br>
+        <strong>Category:</strong> category · type (optional — auto-detected if missing)<br><br>
+        Date formats: 2025-01-15 · 1/15/2025 · Jan 15, 2025<br>
+        Amount formats: -850.00 · (850.00) · 1,250.00 · ₱1,250
     </div>`;
 
     body.innerHTML = html;
