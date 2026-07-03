@@ -221,6 +221,173 @@ function renderAll() {
     }, 100);
 }
 
+// --- EXPORT ---
+function exportCSV() {
+    if (!transactions.length) return alert('No transactions to export.');
+
+    const header = ['date', 'description', 'amount', 'category'];
+    const rows = transactions.map(t => [
+        t.date,
+        `"${t.description.replace(/"/g, '""')}"`,
+        t.amount,
+        t.category
+    ]);
+
+    const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fintrack-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// --- IMPORT ---
+const VALID_CATEGORIES = ['Income', 'Food', 'Transport', 'Housing', 'Health', 'Utilities', 'Entertainment', 'Other'];
+
+async function importCSV(event) {
+    const file = event.target.files[0];
+    // Reset input so the same file can be re-imported if needed
+    event.target.value = '';
+    if (!file) return;
+
+    const text = await file.text();
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return showImportModal(0, 0, ['File is empty or has no data rows.']);
+
+    // Normalize header: lowercase, strip quotes/spaces
+    const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+    const colDate = header.indexOf('date');
+    const colDesc = header.indexOf('description');
+    const colAmt  = header.indexOf('amount');
+    const colCat  = header.indexOf('category');
+
+    if ([colDate, colDesc, colAmt, colCat].includes(-1)) {
+        return showImportModal(0, 0, [
+            'Missing required columns. Expected: date, description, amount, category'
+        ]);
+    }
+
+    const { data: { session } } = await _supabase.auth.getSession();
+    if (!session) return (window.location.href = 'login.html');
+
+    let imported = 0;
+    let skipped  = 0;
+    const errors = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        // Handle quoted fields with commas inside them
+        const cols = parseCSVLine(line);
+        const date = (cols[colDate] || '').trim();
+        const desc = (cols[colDesc] || '').trim();
+        const rawAmt = parseFloat((cols[colAmt] || '').trim());
+        const cat  = cols[colCat] ? cols[colCat].trim() : '';
+
+        // Validate
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            errors.push(`Row ${i}: invalid date "${date}" — use YYYY-MM-DD`);
+            skipped++; continue;
+        }
+        if (!desc) {
+            errors.push(`Row ${i}: description is empty`);
+            skipped++; continue;
+        }
+        if (isNaN(rawAmt) || rawAmt === 0) {
+            errors.push(`Row ${i}: invalid amount "${cols[colAmt]}"`);
+            skipped++; continue;
+        }
+        if (!VALID_CATEGORIES.includes(cat)) {
+            errors.push(`Row ${i}: unknown category "${cat}"`);
+            skipped++; continue;
+        }
+
+        try {
+            await db.addTransaction({ date, description: desc, amount: rawAmt, category: cat, user_id: session.user.id });
+            imported++;
+        } catch (e) {
+            errors.push(`Row ${i}: database error — ${e.message}`);
+            skipped++;
+        }
+    }
+
+    if (imported > 0) {
+        transactions = await db.getTransactions();
+        renderAll();
+    }
+
+    showImportModal(imported, skipped, errors);
+}
+
+function parseCSVLine(line) {
+    const cols = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+            else { inQuotes = !inQuotes; }
+        } else if (ch === ',' && !inQuotes) {
+            cols.push(cur); cur = '';
+        } else {
+            cur += ch;
+        }
+    }
+    cols.push(cur);
+    return cols;
+}
+
+function showImportModal(imported, skipped, errors) {
+    const modal = document.getElementById('import-modal');
+    const body  = document.getElementById('import-modal-body');
+
+    let html = '';
+
+    if (imported > 0) {
+        html += `<div class="import-stat success">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            ${imported} transaction${imported !== 1 ? 's' : ''} imported successfully
+        </div>`;
+    }
+    if (skipped > 0) {
+        html += `<div class="import-stat warning">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            ${skipped} row${skipped !== 1 ? 's' : ''} skipped
+        </div>`;
+    }
+    if (imported === 0 && skipped === 0 && errors.length === 0) {
+        html += `<div class="import-stat warning">No data rows found in the file.</div>`;
+    }
+    if (errors.length > 0) {
+        html += `<div class="import-errors"><ul>${errors.map(e => `<li>⚠ ${e}</li>`).join('')}</ul></div>`;
+    }
+
+    html += `<div class="import-hint">
+        Expected CSV format:<br>
+        date, description, amount, category<br>
+        2025-01-15, Groceries, -850.00, Food<br>
+        2025-01-01, Salary, 25000.00, Income
+    </div>`;
+
+    body.innerHTML = html;
+    modal.style.display = 'flex';
+}
+
+function closeImportModal(event) {
+    if (event.target === document.getElementById('import-modal')) {
+        document.getElementById('import-modal').style.display = 'none';
+    }
+}
+
+window.closeImportModal = closeImportModal;
+window.exportCSV = exportCSV;
+window.importCSV = importCSV;
+
 async function logout() {
     const { error } = await _supabase.auth.signOut();
     if (error) {
